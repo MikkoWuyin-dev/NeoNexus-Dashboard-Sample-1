@@ -79,6 +79,6 @@ function streamFile(filePath, res) {
     .pipe(res)
 }
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Clone server running at http://localhost:${PORT}`)
 })
