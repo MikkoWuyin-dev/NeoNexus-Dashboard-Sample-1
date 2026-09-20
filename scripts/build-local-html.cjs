@@ -57,6 +57,8 @@ const RSC_CLS_OLD = 'className\\":\\"font-sans dm_sans_fb5c29f7-module__Edek3G__
 const RSC_CLS_NEW = 'className\\":\\"dark font-sans dm_sans_fb5c29f7-module__Edek3G__variable'
 const BOOT_OLD = '("class","theme","light",null'
 const BOOT_NEW = '("class","theme","dark",null'
+const PROVIDER_OLD = '\\"defaultTheme\\":\\"light\\"'
+const PROVIDER_NEW = '\\"defaultTheme\\":\\"dark\\"'
 
 if (html.includes(HTML_CLS_OLD)) {
   html = html.replace(HTML_CLS_OLD, HTML_CLS_NEW)
@@ -67,6 +69,11 @@ if (html.includes(HTML_CLS_OLD)) {
 }
 patchOnce('RSC payload html className -> dark', RSC_CLS_OLD, RSC_CLS_NEW)
 patchOnce('boot script defaultTheme -> dark', BOOT_OLD, BOOT_NEW)
+// The client-side ThemeProvider's own default is "light" in the payload; with
+// empty localStorage the client render would emit <html class="... light">
+// against the dark server markup -> React #418. All three layers (DOM tag,
+// boot script, provider default) must agree on dark.
+patchOnce('ThemeProvider defaultTheme -> dark', PROVIDER_OLD, PROVIDER_NEW)
 
 // 4. Patch client chunks in place (idempotent via exact-match replacement).
 //    - Turbopack chunk loader falls back to the live
@@ -109,6 +116,34 @@ if (fs.existsSync(CHUNKS_DIR)) {
   }
 }
 console.log(`chunk patches applied to ${patchedChunks} file(s)`)
+
+// 5. Refresh the SSR date range. The snapshot was saved with the 28-day
+//    window frozen at "23 Aug 2026 - 19 Sep 2026"; the client recomputes the
+//    trailing window from today, so the SSR text starts one day stale. Patch
+//    both DOM and payload to the build-day values to minimize the mismatch
+//    window (the client still recomputes after hydration — this only affects
+//    first paint).
+{
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const fmt = (d) => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
+  const now = new Date()
+  const start = fmt(new Date(now.getTime() - 27 * 86400000))
+  const end = fmt(now)
+  const staleStart = '23 Aug 2026'
+  const staleEnd = '19 Sep 2026'
+  for (const [from, to, label] of [
+    [staleStart, start, 'range start'],
+    [staleEnd, end, 'range end'],
+  ]) {
+    const n = html.split(from).length - 1
+    if (n === 1) {
+      html = html.replace(from, to)
+      console.log(`patched: ${label} -> ${to}`)
+    } else {
+      console.log(`skipped: ${label} (found ${n} occurrences of "${from}")`)
+    }
+  }
+}
 
 fs.mkdirSync(path.dirname(OUT), { recursive: true })
 fs.writeFileSync(OUT, html)
